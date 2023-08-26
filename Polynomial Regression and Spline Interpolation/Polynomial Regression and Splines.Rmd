@@ -1,0 +1,206 @@
+---
+title: "Polynomial Regression and Splines"
+author: "Phoebe Tan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+**Polynomial Regression**
+
+Like a linear regression model, except that the regression are powers of X.
+
+**Spline Interpolation**
+
+A form of interpolation where the interpolant is a special type of piece wise polynomial called a spline.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preprocessing Data
+
+```{r}
+#Data Link: https://www.kaggle.com/datasets/rajyellow46/wine-quality
+data= read.csv("winequalityN.csv")
+str(data)
+head(data)
+sum(is.na(data))
+
+
+#There are NA values
+data= na.omit(data)
+
+#Remove leverage values
+
+# Calculate the leverage values for each observation
+leverage <- hatvalues(lm(alcohol ~ density, data = data))
+
+# Identify the observations with high leverage values
+high_leverage <- which(leverage > (2 * mean(leverage)))
+
+# Exclude the high leverage observations from your analysis
+data <- data[-high_leverage, ]
+str(data)
+head(data)
+attach(data)
+```
+
+#1. Polynomial Regression
+```{r}
+fit=lm(alcohol~poly(density ,4) ,data=data, raw = TRUE)
+coef(summary (fit))
+```
+
+```{r}
+#decide on the degree of the polynomial to use.
+fit.1= lm(alcohol~density ,data=data)
+fit.2= lm(alcohol~poly(density,2) ,data=data)
+fit.3= lm(alcohol~poly(density,3) ,data=data)
+fit.4= lm(alcohol~poly(density,4) ,data=data)
+fit.5= lm(alcohol~poly(density,5) ,data=data)
+fit.6= lm(alcohol~poly(density,6) ,data=data)
+#The "anova" function is then used to perform an analysis of variance (ANOVA) test to compare the five models and determine which one provides the best fit to the data. 
+anova(fit.1, fit.2, fit.3, fit.4, fit.5, fit.6)
+#coef(summary(fit.4))
+```
+***Result***
+From the ANOVA table, the p-values for the 2nd-degree, 3rd degree and 4th degree and 5th degree polynomial model (Model 2,3,4 and 5) have p-values less than 0.05. This indicates a significant improvement in model fit from adding a quadratic, cubic, 4th degree term and 5th degree term. 
+
+However, the p-value for Model 6 is 0.065204, which is larger than 0.05. This means that adding the 6th degree term is not statistically significant in improving the model's fit. 
+
+Therefore, we would choose the 5th-degree polynomial model (Model 5) as the best model for this dataset, based on the ANOVA table.
+
+
+#2. Cubic Spline
+
+```{r}
+library(splines)
+#str(data)
+#3 cutpoints at time 
+fit<-lm(alcohol ~ bs(density,knots = c(0.990,0.9949,0.998)),data  ) #bs=Basis spline.
+summary(fit)
+```
+
+```{r}
+#Generating Test Data
+lims=range(density)
+#"seq" function creates a sequence of values from the minimum to the maximum, spaced evenly.
+density.grid<-seq(from=lims[1], to = lims[2], length.out=6087)
+#percentiles
+#dimensions of the basis matrix (number of rows and columns)
+dim(bs(density ,knots=c(0.990,0.9949,0.998)))
+#the knots used in the basis function
+#Returns a  positions of the internal knots used in the B-spline basis with six degrees of freedom.
+attr(bs(density ,df=6) ,"knots")
+fit0<-lm(alcohol ~ bs(density,knots = c(0.99248,0.99490,0.99684)),data = data )
+summary(fit0)
+#Generating Test Data
+density.grid<-seq(from=lims[1], to = lims[2], length.out=6087)
+```
+
+
+```{r}
+# Predicting the model fit0
+fit0_pre = predict(fit0,newdata = list(density=density.grid))
+fit0_pre
+```
+
+```{r}
+# Predicting the fit model
+fit_pre = predict(fit,newdata = list(density=density.grid))
+fit_pre
+```
+
+```{r}
+#comparing
+#Plotting the Regression Line to the scatterplot   
+plot(density,alcohol,col="black",xlab="Density",ylab="Alcohol")
+points(density.grid,fit0_pre,,col="red",lwd=2,type="l")
+points(density.grid,fit_pre,col="green",lwd=2,type="l")
+legend("topright",c("Our cutting point","Percentiles"),col=c("green","red"),lwd=2)
+```
+
+**Conclusion**
+
+Comparing the two regression lines, we can see that they are both similar in shape, but the shape differ slightly at density=0.990 (which is the knot for the green line).
+
+
+# 3. Fitting A Natural Spline
+
+```{r}
+#Here we fit a natural spline with degrees of freedom.
+fit1<-smooth.spline(density,alcohol,df=16) # Df= degree of freedom
+#Scatter plot of x= Density and Y= Alcohol
+plot(density,alcohol,col="black",xlab="Density",ylab="Alcohol")
+#The predict function is used to obtain the predicted values for the spline fit at each point in time.grid.
+fit1_pre = predict(fit,newdata = list(density=density.grid))
+points(density.grid,fit1_pre,col="green",lwd=2,type="l")
+#adding cutpoints
+abline(v=c(0.990,0.9949,0.998),lty=2,col="darkgreen")
+lines(fit1,col="red",lwd=2)
+legend("topright",c("Smoothing Spline with 16 df","Cubic Spline"),col=c("red","green"),lwd=2)
+```
+
+The smoothing spline is less smooth than the cubic spline, but this might be due to the degree of freedom=16, which may be too high that resulted in a less smooth Since the degrees of freedom parameter controls the amount of smoothing, it may have resulted in less smoothing and a closer fit to the data.
+
+***Smoothing Splines with cross-validation***
+
+
+```{r}
+#Implementing Cross Validation to select value of λ and Implement Smoothing Splines
+fit2<-smooth.spline(density,alcohol,cv = TRUE)
+fit2
+plot(density,alcohol,col="black")
+lines(fit2,lwd=2,col="purple")
+legend("topright",c("Smoothing Splines with 10.42245 df selected by CV"),col=c("purple"),lwd=2)
+
+```
+
+Indeed, the optimal degrees of freedom chosen by CV=10.42245, lower than the initial value of 16, has a smoother spline.
+
+***spline interpolation***
+```{r}
+spline_fit <- spline(density, alcohol, n = length(density)*2)
+summary(spline_fit)
+plot(density, alcohol, pch = 16, col="black")
+lines(spline_fit, col = "blue",lwd=2)
+legend("topright",c("Spline Interpolation"),col=c("blue","purple"),lwd=2)
+
+```
+
+Since spline interpolation passes through every data, the interpolating spline appears to be extremely jagged and not smooth. It has a high degree of variation or roughness. This is often referred to as overfitting, where the spline is too flexible and closely fits the individual data points, but fails to capture the overall trend of the data.
+
+***Comparison between Spline interpolation and Smoothing Splines*** 
+
+```{r}
+#Plotting Regression Line
+plot(density,alcohol,col="black")
+lines(spline_fit, col = "blue",lwd=2)
+lines(fit2,lwd=2,col="red")
+legend("topright",c("Smoothing Splines with 10.42245 df selected by CV","Spline Interpolation"),col=c("blue","red"),lwd=2)
+
+```
+
+
+Comparing both splines, the smoothing spline captures the general trend of the data better than that of the interpolating spline. An interpolating spline is a type of spline that passes through each of the data points exactly, without considering the overall trend of the data. This can lead to a spline that is too jaggered and not smooth, as it closely fits each data point without taking into account the noise or variability in the data.
+
+On the other hand, a smoothing spline is a type of spline that considers both the data points and the overall trend of the data. It does this by adding a smoothing penalty to the spline fit, which discourages the spline from varying too much between neighboring data points. This results in a smoother and more general representation of the data, which captures the overall trend of the data better than that of the interpolating spline.
+
+# 4. Generalized Additive Model (GAMs)
+
+```{r}
+#install.packages('gam')
+library(gam)
+#The lo function is used to model the effect of density using a locally weighted regression smoother, also known as a loess smoother. 
+
+gam.lo=gam(alcohol~lo(density ,span =0.7),data=data)
+plot.Gam(gam.lo , se=TRUE , col ="green ")#se=TRUE specifying that standard error bands should be included in the plot
+
+gam.lo2=gam(alcohol~lo(density ,span =0.1),data=data)
+plot.Gam(gam.lo2 , se=TRUE , col ="red ")#se=TRUE specifying that standard error bands should be included in the plot
+```
+
+Comparing both graphs where the span=0.7 vs span=0.1, the graph with a lower span appears to be less smooth and more flexible. With a larger span, the curve will be relatively smooth and will follow the overall trend of the data, rather than closely fitting each individual data point. A smaller value of span would result in a curve that is more flexible and more closely fits each individual data point. This agrees with the graphs produced, of different span values. 
+
+Furthermore, the overall shape of the GAM graph in green agrees with that generated by the Smoothing spline with 10.42245 df. However, it is important to note that the GAM graph is fitted with a loess smoother specified by lo(). In contrast, a smoothing spline typically involves fitting a spline function to the data, with the goal of minimizing the sum of squared residuals while achieving a smooth curve. This method can be more flexible than a LOESS smoother with span=0.7, and may be better suited to capturing more complex or nonlinear relationships between variables.
+
