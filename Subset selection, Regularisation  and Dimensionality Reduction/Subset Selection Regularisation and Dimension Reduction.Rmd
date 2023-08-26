@@ -1,0 +1,1010 @@
+---
+title: "Subset Selection, Shrinkage Methods and Dimension Reduction"
+author: "Phoebe Tan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+**Subset Selection:**
+
+Select a subset of predictors believed to be related to the response, then fit a model on this reduced subset using regression.
+
+**Shrinkage (Regularisation):**
+
+Fit a model involving all predictors, but shrink the coefficients toward zero, potentially leading to some coefficients being exactly zero and performing variable selection.
+
+**Dimension Reduction**
+
+Project predictors into a lower-dimensional space using linear combinations, then fit a regression model on these projections to achieve a simpler model and potentially address multicollinearity.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preprocessing Data
+
+```{r}
+library(data.table)
+library(ISLR2)
+set.seed(2)
+data=Hitters
+str(Hitters)
+head(Hitters)
+sum(is.na(Hitters$Salary))
+
+
+#There are NA values. Thus we omit them
+Hitters= na.omit(Hitters)
+Hitters= subset(Hitters, select= -c(League,Division,NewLeague))
+str(Hitters)
+```
+
+
+## Feature selection
+```{r}
+#install.packages('leaps')
+library(leaps)
+#Now, we apply regsubsets() to the training set in order to perform best subset selection.
+regfit.full = regsubsets(Salary ~ ., data = Hitters, nvmax = 16) #nvmax= is the maximum number of variables to include in the model 
+reg.summary = summary(regfit.full)
+reg.summary 
+```
+
+
+From the summary above, the best 1- variable model is the one with CRBI as the predictor. The best 2 variable model is with Hits + CRBI. The best 3 variable model is with Hits + CRBI + PutOuts and so on.
+
+***A natural question is: which of these best models should we finally choose for our predictive analytics?***
+
+#Choosing the optimal model
+
+
+```{r}
+names(reg.summary)            #Model selection criteria: Adjusted R2, Cp and BIC
+data.frame(
+  Adj.R2 = which.max(reg.summary$adjr2),
+  CP = which.min(reg.summary$cp),
+  BIC = which.min(reg.summary$bic)
+)
+```
+
+With BIC, the best model is the one with 7 variables. However, using Adjusted R2 and CP, we should go for the one with 9 variables.
+
+## Using Additional Strategies
+
+```{r}
+wh=reg.summary$which;View(wh)
+reg.summary$adjr2
+reg.summary$rsq
+```
+
+***plot adjr2***
+```{r}
+#install.packages('ggvis')
+library(ggvis)
+adjr2 <- as.data.frame(reg.summary$adjr2)
+names(adjr2) <- "adjr2"
+par(mfrow=c(2,2))
+plot(reg.summary$rss ,xlab="Number of Variables ",ylab="RSS",type="l")
+plot(reg.summary$adjr2 ,xlab="Number of Variables ", ylab="Adjusted RSq",type="l")
+plot(reg.summary$cp ,xlab="Number of Variables ",ylab="Cp", type='l')
+plot(reg.summary$bic ,xlab="Number of Variables ",ylab="BIC",type='l')
+which.max(reg.summary$adjr2)
+which.min(reg.summary$cp )
+```
+
+Unsurprisingly, the RSS decreases as the number of variables increases. The Adjusted Rsq increases greatly from 0 to 5 variables, and gradually increases from 6 to 9 variables, then decreases. The Cp also decreases sharply from 0 to 5 variables, but gradually decreases from 6 to 9 variables and inreases after. The BIC reaches a minimum at 7 variables and increases from 6 variables beyond. All the graphs show a conclusion that although the maximum AIC/minimum CP is reached at 9 variables, the very small change in values from 5/6/7 variables and beyond, as well as the minimum BIC reached at 7 variables, imply that the best model should be with 6/7 features only.
+
+The best 7 feature model has the variables: AtBat, Hits, Walks, CHmRun, CRuns, CWalks and PutOuts
+
+***Foward and backward selection***
+
+
+## Forward 
+```{r}
+regfit.fwd = regsubsets(Salary ~ ., data = Hitters,nvmax=16, method ="forward")
+regfit.bwd = regsubsets(Salary ~ ., data = Hitters,nvmax=16,method ="backward")
+coef(regfit.full ,7)
+coef(regfit.fwd ,7)
+coef(regfit.bwd ,7)
+```
+
+The features for the best 7 model by Forward and backward selection is similar to the ones chosen by best subset selection previously ( AtBat, Hits, Walks, CRuns, CWalks and PutOuts), but it has  CRBI instead of CHmRun chosen in the model.
+
+```{r}
+reg.summary1 = summary(regfit.fwd)            #Model selection criteria: Adjusted R2, Cp and BIC
+reg.summary2 = summary(regfit.bwd) 
+data.frame(
+   which.max(reg.summary$adjr2),which.max(reg.summary1$adjr2),which.max(reg.summary2$adjr2))
+```
+
+For best subset selection, forward and backward selection, the best model evaluated with adjusted R2 uses 9 features.
+
+***Ridge Regression***
+```{r}
+#install.packages('caret')
+library(caret)
+set.seed(1)
+split <- createDataPartition(y=Hitters$Salary, p = 0.7, list = FALSE)
+train <- Hitters[split,]
+test <- Hitters[-split,]
+set.seed(825) # for reproducing these results
+train
+ridge <- train(Salary ~ ., data = train,method='ridge',lambda = 4,preProcess=c('scale', 'center'))# lambda:-regularization parameter 
+#also specifying to pre-process your data by scaling and centering it.
+ridge
+# Predicting the model
+ridge.pred <- predict(ridge, test)
+ #Finding accuracy of the model
+mean((ridge.pred - test$Salary)^2)
+```
+
+
+***k-folds cross-validation***
+```{r}
+#k-folds
+#Use k-folds to select the best lambda. 
+#For cross-validation, we will split the data into testing and training data
+set.seed(825)
+fitControl <- trainControl(method = "cv",
+                            number = 10)  #to specify the type of cross-validation
+# Set seq of lambda to test
+lambdaGrid <- expand.grid(lambda = 10^seq(10, -2, length=100)) #create a grid of lambda values to test.
+                         
+ridge <- train(Salary ~ ., data = Hitters,
+              method='ridge',
+              trControl = fitControl,
+              tuneGrid = lambdaGrid,
+              preProcess=c('center', 'scale')
+            )
+
+ridge
+# Compute coeff
+predict(ridge$finalModel, type='coef', mode='norm')$coefficients[16,]
+
+#Predicting the model
+ridge.pred <- predict(ridge, test)
+#Finding the accuarcy
+#sqrt(mean(ridge.pred - test$ozone_reading)^2)
+sqrt(mean((ridge.pred - test$Salary)^2))
+```
+
+***linear regression***
+```{r}
+#We should now check to see if this is actually any better than a regular lm() model.
+lmfit <- train(Salary ~ ., data = train,
+               method='lm',
+               trControl = fitControl,
+               preProc=c('scale', 'center'))
+lmfit
+coef(lmfit$finalModel)
+lmfit.pred <- predict(lmfit, test)
+#sqrt(mean(lmfit.pred - test$ozone_reading)^2)
+sqrt(mean((lmfit.pred - test$Salary)^2))
+```
+As we can see this ridge regression fit certainly has lower RMSE and higher R^2. We can also see that the ridge regression has indeed shrunk the coefficients, some of them extremely close to zero.<br>
+
+
+***Lasso Regression***
+```{r}
+#install.packages('elasticnet')
+library(elasticnet)
+lasso <- train(Salary ~., train,
+               method='lasso',
+               preProc=c('scale','center'),
+               trControl=fitControl)
+lasso
+# Get coef
+predict.enet(lasso$finalModel, type='coefficients', s=lasso$bestTune$fraction, mode='fraction')
+lasso.pred <- predict(lasso, test)
+sqrt(mean(lasso.pred - test$Salary)^2)
+
+```
+Here in the lasso we see that many of the coefficients have been forced to zero. This presents a simplicity advantage over ridge and linear regression models. Moreover, the RMSE is much lower than that of Ridge. This might be due to the fact that there are 16 predictors, and shrinking some predictors to 0 will improve the model's performance.<br>
+
+**(PCR )Principal Components Regression***
+
+```{r}
+#We will show PCR using the caret package.
+pcr.fit <- train(Salary ~., data=train,preProc = c('center', 'scale'),method='pcr',trControl=fitControl)
+#preProc" argument specifies that the predictor variables should be centered and scaled prior to model fitting
+summary(pcr.fit)
+pcr.pred <- predict(pcr.fit, test)
+sqrt(mean((pcr.pred - test$Salary)^2))
+```
+
+The RMSE is 307.8941, which performs slightly better than Ridge Regression but worse than Lasso Regression.
+
+***Partial least squares (PLS)***
+```{r}
+#install.packages('pls')
+library(pls)
+pls.fit <- plsr(Salary~., data=train, scale=TRUE, validation="CV")
+summary(pls.fit)
+validationplot(pls.fit, val.type='MSEP')
+pls.pred <- predict(pls.fit, test, ncomp=16)
+sqrt(mean((pls.pred - test$Salary)^2))
+```
+
+
+
+```{r}
+# Fit PLS models with 1 to 16 components
+ncomp <- 1:16
+pls.rmses <- rep(NA, length(ncomp))
+for (i in ncomp) {
+  pls.fit <- plsr(Salary~., data=train, scale=TRUE, ncomp=i)
+  pls.pred <- predict(pls.fit, test)
+  pls.rmses[i] <- sqrt(mean((pls.pred - test$Salary)^2))
+}
+
+# Plot test RMSE vs number of components
+plot(ncomp, pls.rmses, type="b", xlab="Number of components", ylab="Test RMSE")
+```
+
+Choosing 3 components will give the lowest Test RMSE.
+
+
+
+***Principal Component Analysis***
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+#install.packages('scales')
+library(scales)
+#install.packages('ggplot2')
+library(ggplot2)
+```
+
+#For the covariance matrix S
+```{r}
+# By default "prcomp" will perform decomposition of data that is centered but not scaled (center = TRUE, scale = FALSE)
+# Calculate the principal component of covariance matrix with scaling
+df= train[, -ncol(train)]
+pca_S = prcomp(df)
+pca_S
+summary(pca_S)
+
+```
+
+-A scree graph of the eigenvalues can be plotted to visualize the proportion of variance explained by each subsequential eigenvalue
+```{r}
+# the eigenvalues are provided as;
+pca_S$sdev^2
+```
+
+```{r}
+# Plot the Screeplot of covariance matrix S
+plot(pca_S$sdev^2, type="b", main = "Screeplot of Covariance Matrix S", xlab = 'Eigenvalue Number', ylab = "variance (Eigenv
+alue)", pch=20, cex.main = 0.7)
+
+```
+
+
+To determine the appropriate number of components, we will look at the elbow of the screeplot above. The elbow occurs at around the 2nd eigenvalue number. Thus we choose 2 principle component.
+
+
+
+
+-The eigenvalues of S are used to find the proportion of the total variance explained by the components as follows:
+
+```{r}
+variance_percent = pca_S$sdev^2/sum(pca_S$sdev^2)
+variance_percent
+cumulative_variance_percent = cumsum(pca_S$sdev^2)/sum(pca_S$sdev^2)
+cumulative_variance_percent
+
+```
+
+```{r}
+# plotting strategy
+plot(cumulative_variance_percent, yaxt="n", main="Cumulative Variance Explained in S", ylab = "Proportion of Variance explai
+ned", xlab = "Eigenavalue ", type = "b", ylim = c(0,1), pch=20, cex.main = 0.7)
+
+```
+
+The amount of total sample variance explained only increases very gradually after the second principle component. Thus the model can be explained by the second principal component(PC) effectively.
+
+
+
+
+# Advanced Practice
+I shall compare the feature selection methods, LASSO and PCR on these simulation models. I will do so by evaluating the accuracy with K-folds cross validation.
+
+# Question 1
+
+```{r}
+library(glmnet)
+library(caret)
+
+set.seed(125) # for reproducibility
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:10] # select first 10 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+y <- rbinom(n, 1, plogis(log_odds))
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+
+# Predict accuracy using k-fold cross-validation: USING LASSO REGULARIZATION
+set.seed(123)
+folds <- createFolds(y, k = 10, list = TRUE)
+accuracy <- rep(NA, length(folds))
+for (i in seq_along(folds)) {
+  # Split data into training and testing sets
+  x_train <- x[-folds[[i]], ]
+  y_train <- y[-folds[[i]]]
+  x_test <- x[folds[[i]], ]
+  y_test <- y[folds[[i]]]
+  
+  # Train Lasso model on training data
+  fit <- glmnet(x = as.matrix(x_train), y = y_train, family = "binomial", alpha = 1)
+  
+  # Predict test data using Lasso model
+  y_pred <- predict(fit, newx = as.matrix(x_test))
+  y_pred <- ifelse(y_pred > 0, 1, 0)
+  
+  # Calculate accuracy on test data
+  accuracy[i] <- mean(y_pred == y_test)
+}
+
+lasso_accuracy <- mean(accuracy)
+lasso_accuracy
+``` 
+
+```{r}
+library(pls)
+
+set.seed(125)
+
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:10] # select first 10 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+y <- rbinom(n, 1, plogis(log_odds))
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+# number of principal components to consider
+k <- 10
+
+# create a matrix of zeros to store the predicted values
+y_pred <- matrix(0, nrow = n, ncol = k)
+
+# perform k-fold cross-validation
+k <- 5 # number of folds
+folds <- sample(rep(1:k, length.out = n))
+
+# calculate accuracy for each fold
+cv_errors <- rep(0, k)
+
+for (i in 1:k) {
+  # split data into training and testing sets
+  x_train <- x[folds != i, ]
+  y_train <- y[folds != i]
+  x_test <- x[folds == i, ]
+  y_test <- y[folds == i]
+  
+  # perform PCR
+  fit_pcr <- pcr(y_train ~ ., data = x_train, scale = TRUE, validation = "CV")
+  
+  # predict on test set
+  y_pred[folds == i, ] <- predict(fit_pcr, newdata = x_test, ncomp = k)
+  
+  # calculate accuracy
+  cv_errors[i] <- mean((y_pred[folds == i, ] - y_test)^2)
+}
+
+# calculate the average accuracy across all folds
+pcr_accuracy <- 1 - mean(cv_errors)
+
+cat("Accuracy:", round(accuracy, 3))
+
+
+```
+
+
+```{r}
+cbind(lasso_accuracy,pcr_accuracy)
+
+```
+
+LASSO performs slightly better than PCR, using k-fold cross validation to estimate the accuracy of the models.
+
+
+
+# Question 2
+
+```{r}
+library(glmnet)
+library(caret)
+
+set.seed(125) # for reproducibility
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:10] # select first 10 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+zb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- 1/(1 + exp(-zb))
+y= rbinom(n,1,prob=p)
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+
+# Predict accuracy using k-fold cross-validation: USING LASSO REGULARIZATION
+set.seed(123)
+folds <- createFolds(y, k = 10, list = TRUE)
+accuracy <- rep(NA, length(folds))
+for (i in seq_along(folds)) {
+  # Split data into training and testing sets
+  x_train <- x[-folds[[i]], ]
+  y_train <- y[-folds[[i]]]
+  x_test <- x[folds[[i]], ]
+  y_test <- y[folds[[i]]]
+  
+  # Train Lasso model on training data
+  fit <- glmnet(x = as.matrix(x_train), y = y_train, family = "binomial", alpha = 1)
+  
+  # Predict test data using Lasso model
+  y_pred <- predict(fit, newx = as.matrix(x_test))
+  y_pred <- ifelse(y_pred > 0, 1, 0)
+  
+  # Calculate accuracy on test data
+  accuracy[i] <- mean(y_pred == y_test)
+}
+
+lasso_accuracy <- mean(accuracy)
+lasso_accuracy
+``` 
+
+```{r}
+library(pls)
+
+set.seed(125)
+
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:10] # select first 10 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+zb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- 1/(1 + exp(-zb))
+y= rbinom(n,1,prob=p)
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+# number of principal components to consider
+k <- 10
+
+# create a matrix of zeros to store the predicted values
+y_pred <- matrix(0, nrow = n, ncol = k)
+
+# perform k-fold cross-validation
+k <- 5 # number of folds
+folds <- sample(rep(1:k, length.out = n))
+
+# calculate accuracy for each fold
+cv_errors <- rep(0, k)
+
+for (i in 1:k) {
+  # split data into training and testing sets
+  x_train <- x[folds != i, ]
+  y_train <- y[folds != i]
+  x_test <- x[folds == i, ]
+  y_test <- y[folds == i]
+  
+  # perform PCR
+  fit_pcr <- pcr(y_train ~ ., data = x_train, scale = TRUE, validation = "CV")
+  
+  # predict on test set
+  y_pred[folds == i, ] <- predict(fit_pcr, newdata = x_test, ncomp = k)
+  
+  # calculate accuracy
+  cv_errors[i] <- mean((y_pred[folds == i, ] - y_test)^2)
+}
+
+# calculate the average accuracy across all folds
+pcr_accuracy <- 1 - mean(cv_errors)
+
+pcr_accuracy
+cat("Accuracy:", round(accuracy, 3))
+
+
+```
+
+
+```{r}
+cbind(lasso_accuracy,pcr_accuracy)
+
+```
+
+LASSO performs better than PCR, using k-fold cross validation to estimate the accuracy of the models.
+
+# Question 3
+
+```{r}
+library(glmnet)
+library(caret)
+
+set.seed(125) # for reproducibility
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:10] # select first 10 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+#let b1=1, b2=2, b3=3, b4=4, b5=4
+zb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- (tanh(zb)+1)/2
+y= rbinom(n,1,prob=p)
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+
+# Predict accuracy using k-fold cross-validation: USING LASSO REGULARIZATION
+set.seed(123)
+folds <- createFolds(y, k = 10, list = TRUE)
+accuracy <- rep(NA, length(folds))
+for (i in seq_along(folds)) {
+  # Split data into training and testing sets
+  x_train <- x[-folds[[i]], ]
+  y_train <- y[-folds[[i]]]
+  x_test <- x[folds[[i]], ]
+  y_test <- y[folds[[i]]]
+  
+  # Train Lasso model on training data
+  fit <- glmnet(x = as.matrix(x_train), y = y_train, family = "binomial", alpha = 1)
+  
+  # Predict test data using Lasso model
+  y_pred <- predict(fit, newx = as.matrix(x_test))
+  y_pred <- ifelse(y_pred > 0, 1, 0)
+  
+  # Calculate accuracy on test data
+  accuracy[i] <- mean(y_pred == y_test)
+}
+
+lasso_accuracy <- mean(accuracy)
+lasso_accuracy
+``` 
+
+```{r}
+library(pls)
+
+set.seed(125)
+
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:10] # select first 10 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+#let b1=1, b2=2, b3=3, b4=4, b5=4
+zb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- (tanh(zb)+1)/2
+y= rbinom(n,1,prob=p)
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+# number of principal components to consider
+k <- 10
+
+# create a matrix of zeros to store the predicted values
+y_pred <- matrix(0, nrow = n, ncol = k)
+
+# perform k-fold cross-validation
+k <- 5 # number of folds
+folds <- sample(rep(1:k, length.out = n))
+
+# calculate accuracy for each fold
+cv_errors <- rep(0, k)
+
+for (i in 1:k) {
+  # split data into training and testing sets
+  x_train <- x[folds != i, ]
+  y_train <- y[folds != i]
+  x_test <- x[folds == i, ]
+  y_test <- y[folds == i]
+  
+  # perform PCR
+  fit_pcr <- pcr(y_train ~ ., data = x_train, scale = TRUE, validation = "CV")
+  
+  # predict on test set
+  y_pred[folds == i, ] <- predict(fit_pcr, newdata = x_test, ncomp = k)
+  
+  # calculate accuracy
+  cv_errors[i] <- mean((y_pred[folds == i, ] - y_test)^2)
+}
+
+# calculate the average accuracy across all folds
+pcr_accuracy <- 1 - mean(cv_errors)
+
+pcr_accuracy
+cat("Accuracy:", round(accuracy, 3))
+
+
+```
+
+
+```{r}
+cbind(lasso_accuracy,pcr_accuracy)
+
+```
+
+LASSO performs better than PCR, using k-fold cross validation to estimate the accuracy of the models.
+
+# Question 4
+
+
+
+```{r}
+library(glmnet)
+library(caret)
+
+set.seed(125) # for reproducibility
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:10] # select first 10 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+#let b1=1, b2=2, b3=3, b4=4, b5=4
+zb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- (atan(zb)+ (pi/2))/pi
+y= rbinom(n,1,prob=p)
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+
+# Predict accuracy using k-fold cross-validation: USING LASSO REGULARIZATION
+set.seed(123)
+folds <- createFolds(y, k = 10, list = TRUE)
+accuracy <- rep(NA, length(folds))
+for (i in seq_along(folds)) {
+  # Split data into training and testing sets
+  x_train <- x[-folds[[i]], ]
+  y_train <- y[-folds[[i]]]
+  x_test <- x[folds[[i]], ]
+  y_test <- y[folds[[i]]]
+  
+  # Train Lasso model on training data
+  fit <- glmnet(x = as.matrix(x_train), y = y_train, family = "binomial", alpha = 1)
+  
+  # Predict test data using Lasso model
+  y_pred <- predict(fit, newx = as.matrix(x_test))
+  y_pred <- ifelse(y_pred > 0, 1, 0)
+  
+  # Calculate accuracy on test data
+  accuracy[i] <- mean(y_pred == y_test)
+}
+
+lasso_accuracy <- mean(accuracy)
+lasso_accuracy
+``` 
+
+```{r}
+library(pls)
+
+set.seed(125)
+
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:10] # select first 10 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+#let b1=1, b2=2, b3=3, b4=4, b5=4
+zb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- (atan(zb)+ (pi/2))/pi
+y= rbinom(n,1,prob=p)
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+# number of principal components to consider
+k <- 10
+
+# create a matrix of zeros to store the predicted values
+y_pred <- matrix(0, nrow = n, ncol = k)
+
+# perform k-fold cross-validation
+k <- 5 # number of folds
+folds <- sample(rep(1:k, length.out = n))
+
+# calculate accuracy for each fold
+cv_errors <- rep(0, k)
+
+for (i in 1:k) {
+  # split data into training and testing sets
+  x_train <- x[folds != i, ]
+  y_train <- y[folds != i]
+  x_test <- x[folds == i, ]
+  y_test <- y[folds == i]
+  
+  # perform PCR
+  fit_pcr <- pcr(y_train ~ ., data = x_train, scale = TRUE, validation = "CV")
+  
+  # predict on test set
+  y_pred[folds == i, ] <- predict(fit_pcr, newdata = x_test, ncomp = k)
+  
+  # calculate accuracy
+  cv_errors[i] <- mean((y_pred[folds == i, ] - y_test)^2)
+}
+
+# calculate the average accuracy across all folds
+pcr_accuracy <- 1 - mean(cv_errors)
+
+pcr_accuracy
+cat("Accuracy:", round(accuracy, 3))
+
+
+```
+
+
+```{r}
+cbind(lasso_accuracy,pcr_accuracy)
+
+```
+
+
+LASSO performs slightly better than PCR, using k-fold cross validation to estimate the accuracy of the models.
+
+# Question 5
+
+```{r}
+library(glmnet)
+library(caret)
+
+set.seed(125) # for reproducibility
+n <- 150 # number of observations
+m=100 #Total number of predictors
+p=0.86 #probability 
+x<- matrix(rbinom(n*m,1,p),nrow=n)
+z <- x[, 1:2] # select first 2 predictors only
+#generate outcome variables
+#let b1=1, b2=1
+y <- (z[,1] + z[,2] )%%2
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+
+# Predict accuracy using k-fold cross-validation: USING LASSO REGULARIZATION
+set.seed(123)
+folds <- createFolds(y, k = 10, list = TRUE)
+accuracy <- rep(NA, length(folds))
+for (i in seq_along(folds)) {
+  # Split data into training and testing sets
+  x_train <- x[-folds[[i]], ]
+  y_train <- y[-folds[[i]]]
+  x_test <- x[folds[[i]], ]
+  y_test <- y[folds[[i]]]
+  
+  # Train Lasso model on training data
+  fit <- glmnet(x = as.matrix(x_train), y = y_train, family = "binomial", alpha = 1)
+  
+  # Predict test data using Lasso model
+  y_pred <- predict(fit, newx = as.matrix(x_test))
+  y_pred <- ifelse(y_pred > 0, 1, 0)
+  
+  # Calculate accuracy on test data
+  accuracy[i] <- mean(y_pred == y_test)
+}
+
+lasso_accuracy <- mean(accuracy)
+lasso_accuracy
+``` 
+
+```{r}
+library(pls)
+
+set.seed(125)
+
+
+n=1000 #number of observations
+set.seed(125) # for reproducibility
+n <- 150 # number of observations
+m=100 #Total number of predictors
+p=0.86 #probability 
+x<- matrix(rbinom(n*m,1,p),nrow=n)
+z <- x[, 1:2] # select first 2 predictors only
+#generate outcome variables
+#let b1=1, b2=1
+y <- (z[,1] + z[,2] )%%2
+
+x <- data.frame(x)
+z <- data.frame(z)
+# number of principal components to consider
+k <- 10
+
+# create a matrix of zeros to store the predicted values
+y_pred <- matrix(0, nrow = n, ncol = k)
+
+# perform k-fold cross-validation
+k <- 5 # number of folds
+folds <- sample(rep(1:k, length.out = n))
+
+# calculate accuracy for each fold
+cv_errors <- rep(0, k)
+
+for (i in 1:k) {
+  # split data into training and testing sets
+  x_train <- x[folds != i, ]
+  y_train <- y[folds != i]
+  x_test <- x[folds == i, ]
+  y_test <- y[folds == i]
+  
+  # perform PCR
+  fit_pcr <- pcr(y_train ~ ., data = x_train, scale = TRUE, validation = "CV")
+  
+  # predict on test set
+  y_pred[folds == i, ] <- predict(fit_pcr, newdata = x_test, ncomp = k)
+  
+  # calculate accuracy
+  cv_errors[i] <- mean((y_pred[folds == i, ] - y_test)^2)
+}
+
+# calculate the average accuracy across all folds
+pcr_accuracy <- 1 - mean(cv_errors)
+
+pcr_accuracy
+cat("Accuracy:", round(accuracy, 3))
+
+
+```
+
+
+```{r}
+cbind(lasso_accuracy,pcr_accuracy)
+
+```
+
+
+LASSO performs slightly better than PCR, using k-fold cross validation to estimate the accuracy of the models.
+
+
+# Question 6
+
+Relationship: 
+f(Y) is a Gudermannian function, where P(Y=1)= 2*arctan(tanh(x/2))
+
+We shall let P(Y=1)= (pi/2 +2*arctan(tanh(2z1 + 3z2/2)))/pi where z1,z2 are i.i.d from N(ui,si)
+
+
+```{r}
+library(glmnet)
+library(caret)
+
+set.seed(125) # for reproducibility
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:2] # select first 2 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds #let b1=2, b2=3
+p <- (2*atan(tanh((2*z[,1]+3*z[,2])/2)) + pi/2)/pi
+y= rbinom(n,1,prob=p)
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+
+# Predict accuracy using k-fold cross-validation: USING LASSO REGULARIZATION
+set.seed(123)
+folds <- createFolds(y, k = 10, list = TRUE)
+accuracy <- rep(NA, length(folds))
+for (i in seq_along(folds)) {
+  # Split data into training and testing sets
+  x_train <- x[-folds[[i]], ]
+  y_train <- y[-folds[[i]]]
+  x_test <- x[folds[[i]], ]
+  y_test <- y[folds[[i]]]
+  
+  # Train Lasso model on training data
+  fit <- glmnet(x = as.matrix(x_train), y = y_train, family = "binomial", alpha = 1)
+  
+  # Predict test data using Lasso model
+  y_pred <- predict(fit, newx = as.matrix(x_test))
+  y_pred <- ifelse(y_pred > 0, 1, 0)
+  
+  # Calculate accuracy on test data
+  accuracy[i] <- mean(y_pred == y_test)
+}
+
+lasso_accuracy <- mean(accuracy)
+lasso_accuracy
+``` 
+
+```{r}
+library(pls)
+
+set.seed(125) # for reproducibility
+n <- 150 # number of observations
+p <- 100 # number of predictors in x
+ui <- 0 # mean values for predictors
+si <- 1 # standard deviation values for predictors
+x <- matrix(rnorm(n*p, ui, si), nrow = n)
+z <- x[, 1:2] # select first 2 predictors only
+log_odds <- rowSums(z) # generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds #let b1=2, b2=3
+p <- (2*atan(tanh((2*z[,1]+3*z[,2])/2)) + pi/2)/pi
+y= rbinom(n,1,prob=p)
+
+x <- data.frame(x)
+z <- data.frame(z)
+
+# number of principal components to consider
+k <- 10
+
+# create a matrix of zeros to store the predicted values
+y_pred <- matrix(0, nrow = n, ncol = k)
+
+# perform k-fold cross-validation
+k <- 5 # number of folds
+folds <- sample(rep(1:k, length.out = n))
+
+# calculate accuracy for each fold
+cv_errors <- rep(0, k)
+
+for (i in 1:k) {
+  # split data into training and testing sets
+  x_train <- x[folds != i, ]
+  y_train <- y[folds != i]
+  x_test <- x[folds == i, ]
+  y_test <- y[folds == i]
+  
+  # perform PCR
+  fit_pcr <- pcr(y_train ~ ., data = x_train, scale = TRUE, validation = "CV")
+  
+  # predict on test set
+  y_pred[folds == i, ] <- predict(fit_pcr, newdata = x_test, ncomp = k)
+  
+  # calculate accuracy
+  cv_errors[i] <- mean((y_pred[folds == i, ] - y_test)^2)
+}
+
+# calculate the average accuracy across all folds
+pcr_accuracy <- 1 - mean(cv_errors)
+
+pcr_accuracy
+cat("Accuracy:", round(accuracy, 3))
+
+
+```
+
+
+```{r}
+cbind(lasso_accuracy,pcr_accuracy)
+
+```
+
+
+PCR performs slightly better than LASSO, using k-fold cross validation to estimate the accuracy of the models.
+
+
+
+In totality, LASSO seems to perform better than PCR.
+
