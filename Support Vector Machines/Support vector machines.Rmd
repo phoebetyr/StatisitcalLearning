@@ -1,0 +1,380 @@
+---
+title: "Support Vector Machine"
+author: "Phoebe Tan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Support Vector Machine Regression & Classification
+
+The Algorithm follows:
+
+1. Choose a kernel function
+
+2. Choose a value for C
+
+3. Solve the quadratic programming problem (many software packages available)
+
+4. Construct the discriminant function from the support vectors
+
+Important Notes:
+
+- Scaling before applying SVM is important
+
+- Choice of Kernels
+
+- Choice of Kernel parameters
+
+- Optimisation criterion (Hard vs soft margin)
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(1)
+```
+
+# Preprocessing Data
+```{r}
+#Data Link: https://www.kaggle.com/datasets/rajyellow46/wine-quality
+data= read.csv("winequalityN.csv")
+str(data)
+head(data)
+sum(is.na(data))
+
+
+#There are NA values
+data= na.omit(data)
+#Remove leverage values
+# Calculate the leverage values for each observation
+leverage <- hatvalues(lm(alcohol ~ density, data = data))
+# Identify the observations with high leverage values
+high_leverage <- which(leverage > (2 * mean(leverage)))
+
+# Exclude the high leverage observations from your analysis
+data <- data[-high_leverage, ]
+str(data)
+head(data)
+
+```
+
+```{r}
+data$quality=as.factor(data$quality)
+str(data)
+```
+
+```{r}
+set.seed(1)
+selected <- sample(1:dim(data)[1], size=round(dim(data)[1]*0.7))  #splitting the data into Train and test dataset
+round(dim(data)[1]*0.7)
+train <- data[selected,]   # 70% t which means Randomly select 280 observations for Traning set 
+test <- data[-selected,]   # 30% which means Randomly select 120 observations for Traning set
+train<- train[,9:12]
+test<-test[,9:12]
+```
+# 1. Conduct the SVM regression with different kernels and discuss the results. (50%)
+
+## Fit SVM with different kernels and assess the accuracy of the prediction from 10-fold cross-validation
+
+```{r}
+
+#install.packages('e1071')
+library(e1071)
+#The "kernel" argument is set to "linear" to use a linear kernel, which is appropriate when the data is linearly separable. 
+#The "cross" argument is set to 10 to perform 10-fold cross-validation, which helps to estimate the performance of the model on new, unseen data.
+fitsvml <- svm(pH~., kernel="linear", cross=10, data=train)
+summary(fitsvml)
+```
+
+```{r}
+#predict the model using test dataset
+# generate predictions using SVM model
+pred <- predict(fitsvml, newdata = test)
+
+# create confusion matrix
+confusion <- table(test$pH, pred)
+
+# print confusion matrix
+#confusion
+
+# calculate RMSE
+accuracy <- sum(diag(confusion))/sum(confusion)
+rmse <- sqrt(mean((test$pH - pred)^2))
+cat("Accuracy: ", round(accuracy, 3), "\n")
+
+```
+
+```{r}
+cat("RMSE: ", round(rmse, 3))
+
+```
+
+## Polynomial Kernel
+```{r}
+
+#The "kernel= "polynomial"  can capture non-linear relationships in the data
+fitsvmp <- svm(pH~., kernel="polynomial", cross=10, data=train)
+summary(fitsvmp)
+```
+
+
+```{r}
+#predict the model using test dataset
+# generate predictions using SVM model
+pred <- predict(fitsvmp, newdata = test)
+
+# create confusion matrix
+confusion <- table(test$pH, pred)
+
+# print confusion matrix
+#confusion
+
+# calculate RMSE
+accuracy <- sum(diag(confusion))/sum(confusion)
+rmse <- sqrt(mean((test$pH - pred)^2))
+cat("Accuracy: ", round(accuracy, 3), "\n")
+
+```
+
+
+```{r}
+cat("RMSE: ", round(rmse, 3))
+```
+
+
+## Radial Kernel
+
+```{r}
+#The kernel= "radial" to use an RBF kernel, which is a popular kernel function in SVMs that can capture non-linear relationships in the data.
+fitsvmr <- svm(pH~., kernel="radial", cross=10, data=train)
+summary(fitsvmr)
+```
+
+```{r}
+# generate predictions using SVM model for kernel="radial",
+predvmr <- predict(fitsvmr, newdata = test)
+
+# create confusion matrix
+confusion <- table(test$pH, pred)
+
+# print confusion matrix
+#confusion
+
+# calculate RMSE
+accuracy <- sum(diag(confusion))/sum(confusion)
+rmse <- sqrt(mean((test$pH - predvmr)^2))
+cat("Accuracy: ", round(accuracy, 3), "\n")
+
+```
+
+```{r}
+
+cat("RMSE: ", round(rmse, 3))
+```
+
+## Sigmoid Kernel
+
+```{r}
+
+library(ggplot2)
+fitsvms <- svm(pH~., kernel="sigmoid", cross=10, data=train)
+summary(fitsvms)
+```
+
+```{r}
+# generate predictions using SVM model for  kernel="sigmoid"
+predvms <- predict(fitsvms, newdata = test)
+
+# create confusion matrix
+confusion <- table(test$pH, predvms)
+
+# print confusion matrix
+#confusion
+
+# calculate RMSE
+accuracy <- sum(diag(confusion))/sum(confusion)
+rmse <- sqrt(mean((test$pH - predvmr)^2))
+cat("Accuracy: ", round(accuracy, 3), "\n")
+
+```
+
+```{r}
+cat("RMSE: ", round(rmse, 3))
+```
+The results show that the radial kernel outperforms the other kernels in terms of mean squared error and squared correlation coefficient. The radial kernel has a total mean squared error of 0.02192436 and a squared correlation coefficient of 0.1607452, while the linear, polynomial, and sigmoid kernels have total mean squared errors of 0.02452846, 0.02535625, and 177.5404, respectively, and squared correlation coefficients of 0.06302713, 0.03813492, and 0.003345474, respectively. 
+
+Additionally, the radial kernel has the lowest root mean squared error (RMSE) of 0.146, while the other kernels have higher RMSE values. The linear kernel has an RMSE of 0.156, the polynomial kernel has an RMSE of 0.158, and the sigmoid kernel has an RMSE of 0.146.
+
+Overall, the radial kernel appears to be the best choice for this regression task based on these results. 
+
+
+# 2. Conduct the SVM classification with different kernels and discuss the results. (50%)
+
+```{r}
+set.seed(2)
+data<- data[data$quality==5 | data$quality==7,]
+selected <- sample(1:dim(data)[1], size=round(dim(data)[1]*0.7)) 
+
+#splitting the data into Train and test dataset
+round(dim(data)[1]*0.7)
+train <- data[selected,]   # 70% t which means Randomly select 280 observations for Traning set 
+test <- data[-selected,]   # 30% which means Randomly select 120 observations for Traning set
+train<- train[,c(3,11,12,13)]
+test<-test[,c(3,11,12,13)]
+str(train)
+
+```
+## Linear Kernel
+
+```{r}
+fitsvml <- svm(quality~., kernel="linear", cross=10, data=train)
+summary(fitsvml)
+
+
+```
+
+```{r}
+predsvml <- predict(fitsvml, test)
+confusion=table(test$quality, predsvml)
+sum(diag(confusion))/sum(confusion)
+```
+
+
+```{r}
+# Plot decision boundary on two selected variables (for radial kernel)
+plot(fitsvml, train, sulphates~alcohol, color.palette=terrain.colors)
+
+```
+
+```{r}
+plot(fitsvml, train, volatile.acidity~alcohol, color.palette=terrain.colors)
+```
+
+```{r}
+# Plot decision boundary on two selected variables (for radial kernel)
+plot(fitsvml, train, sulphates~volatile.acidity, color.palette=terrain.colors)
+
+```
+
+
+
+## Polynomial Kernel
+
+```{r}
+fitsvmp <- svm(quality~., kernel="polynomial", cross=10, data=train)
+summary(fitsvmp)
+```
+
+```{r}
+#predicting the model
+predsvmp <- predict(fitsvmp, test)
+#Confusion matrix
+confusion=table(test$quality, predsvmp)
+#Accuracy prediction
+sum(diag(confusion))/sum(confusion)
+````
+
+```{r}
+# Plot decision boundary on two selected variables (for radial kernel)
+plot(fitsvml, train, sulphates~alcohol, color.palette=terrain.colors)
+
+```
+
+```{r}
+plot(fitsvml, train, volatile.acidity~alcohol, color.palette=terrain.colors)
+```
+
+```{r}
+# Plot decision boundary on two selected variables (for radial kernel)
+plot(fitsvml, train, sulphates~volatile.acidity, color.palette=terrain.colors)
+
+```
+
+## Radial Kernel
+
+
+
+```{r}
+fitsvml <- svm(quality~., kernel="radial", cross=10, data=train)
+summary(fitsvml)
+
+
+```
+
+```{r}
+predsvml <- predict(fitsvml, test)
+confusion=table(test$quality, predsvml)
+sum(diag(confusion))/sum(confusion)
+```
+
+
+```{r}
+# Plot decision boundary on two selected variables (for radial kernel)
+plot(fitsvml, train, sulphates~alcohol, color.palette=terrain.colors)
+
+```
+
+```{r}
+plot(fitsvml, train, volatile.acidity~alcohol, color.palette=terrain.colors)
+```
+
+```{r}
+# Plot decision boundary on two selected variables (for radial kernel)
+plot(fitsvml, train, sulphates~volatile.acidity, color.palette=terrain.colors)
+
+```
+
+## Sigmoid Kernel
+  
+```{r}
+fitsvml <- svm(quality~., kernel="sigmoid", cross=10, data=train)
+summary(fitsvml)
+
+
+```
+
+```{r}
+predsvml <- predict(fitsvml, test)
+confusion=table(test$quality, predsvml)
+sum(diag(confusion))/sum(confusion)
+```
+
+
+```{r}
+# Plot decision boundary on two selected variables (for radial kernel)
+plot(fitsvml, train, sulphates~alcohol, color.palette=terrain.colors)
+
+```
+
+```{r}
+plot(fitsvml, train, volatile.acidity~alcohol, color.palette=terrain.colors)
+```
+
+```{r}
+# Plot decision boundary on two selected variables (for radial kernel)
+plot(fitsvml, train, sulphates~volatile.acidity, color.palette=terrain.colors)
+
+```
+
+
+1. Linear SVM:
+The linear SVM model achieved a total accuracy of 83.34% on the training data using 10-fold cross-validation. On the test data, it achieved an accuracy of 84.72%. The confusion matrix shows that the model correctly predicted 96 out of 160 instances of quality=5 (60%), which is the most common class in the test data. 
+
+2. Polynomial SVM:
+The polynomial SVM model achieved a total accuracy of 80.45% on the training data using 10-fold cross-validation. On the test data, it achieved an accuracy of 80.62%. The confusion matrix shows that the model correctly predicted 97 out of 160 instances of quality=5 (61%), which is slightly better than the linear SVM model. 
+
+3. Radial SVM:
+The radial SVM model achieved a total accuracy of 83.67% on the training data using 10-fold cross-validation. On the test data, it achieved an accuracy of 85.27%. The confusion matrix shows that the model correctly predicted 98 out of 160 instances of quality=5 (61%), which is similar to the polynomial SVM model. 
+
+4. Sigmoid SVM:
+The sigmoid SVM model achieved a total accuracy of 73.14% on the training data using 10-fold cross-validation. On the test data, it achieved an accuracy of 73.75%. The confusion matrix shows that the model correctly predicted 65 out of 160 instances of quality=5 (41%), which is significantly worse than the other models.
+
+Overall, the radial SVM model achieved the highest accuracy on the test data, while the sigmoid SVM model performed the worst. It's worth noting that all models performed relatively well in predicting the most common class (quality=5), but struggled with the less common classes. It may be useful to explore other techniques to improve the performance on the less common classes, such as oversampling or using different machine learning algorithms.
+
+
+
+
+
+
+
+
