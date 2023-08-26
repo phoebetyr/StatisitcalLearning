@@ -1,0 +1,964 @@
+---
+title: "LDA, QDA and Multinomial Logistic Regression"
+author: "Phoebe Tan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+#
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(1)
+```
+
+## Preprocessing data
+
+```{r}
+#Data from https://www.kaggle.com/datasets/jmcaro/wheat-seedsuci
+data= read.csv("seeds.csv")
+str(data)
+head(data)
+unique(data$Type) #Target Output: Type of Wheat seeds- 1,2,3
+```
+
+
+```{r}
+
+library(dplyr)
+data= data %>% mutate(id=1:nrow(data))
+train<- data %>% dplyr::sample_frac(0.7)
+test  <- dplyr::anti_join(data, train, by = 'id')
+write.csv(train, file= "train.csv",quote=F,row.names=F,col.names=T)
+write.csv(test, file= "test.csv",quote=F,row.names=F,col.names=T)
+
+Q4train=read.table("train.csv",sep = ",",header = T)
+Q4test=read.table("test.csv",sep = ",",header = T)
+```
+
+
+# Reading Dataset
+```{r}
+
+#Remove ID columns
+Q4train=subset(Q4train,select=-c(id))
+Q4test=subset(Q4test,select=-c(id))
+
+#Read data
+head(Q4train)
+head(Q4test)
+
+# Finding the unique value in the dataset
+unique(Q4train$Type) 
+# Finding NA or missing vales in the dataset
+is.na(Q4train$Type)
+sum(is.na(Q4train$Type))
+```
+
+There are 3 unique values of the type of seeds- 1,2 and 3. There are no NA values.
+
+```{r}
+#Finding missing values of both dataset togther
+for(i in 1:8)
+{
+Q4train<-Q4train[!is.na(Q4train[,i]),]
+Q4test<-Q4test[!is.na(Q4test[,i]),]
+}
+head(Q4train)
+head(Q4test)
+str(Q4train)
+str(Q4test)
+```
+
+
+### Table function (table())in R performs a tabulation of categorical variable and gives its frequency as output.
+```{r}
+unique(Q4train$Type) 
+table(Q4train$Type)
+
+```
+
+There are 3 unique values and the data seems evenly spread across the different types of seeds.
+
+<br>
+
+## LDA (Linear Discriminant Analysis) :
+
+```{r}
+## LDA for Type of seeds
+#Package
+library(MASS)
+unique(Q4train$Type)
+#model
+lda_model <- lda(Type~ . ,data = Q4train)
+lda_model
+```
+
+
+## Assess the accuracy of the prediction using the independent testing set 
+```{r}
+#Predict:-It returns the classification and the posterior probabilities of the new data based on the Linear Discriminant model.
+
+##Predict category
+library(dplyr)
+
+lda_result <- predict(lda_model,Q4test[,-8])$class
+
+#Confusion matrix
+ans <- lda_result == Q4test$target
+test_result_lda <- length(which(ans == TRUE))/nrow(Q4test)
+cat("Confusion table of LDA:")
+result=table(lda_result,Q4test[,8]);result
+# Total percent correct from the testing set
+accuracy=sum(diag(result))/nrow(Q4test);accuracy
+```
+
+The accuracy of predicting the type of wheat seed is high, at 96.7%
+
+
+## Quadratic Discriminant Analysis (QDA)
+
+#### QDA for Type
+```{r}
+#model
+qda_model <- qda(Type~.,data = Q4train)
+qda_model
+```
+
+#Predicting the Qda using the test data
+
+```{r}
+########Predict Type
+qda_result <- predict(qda_model,Q4test[,-8])$class
+
+##############confusion matrix
+ans <- qda_result == Q4test$Type
+test_result_qda <- length(which(ans == TRUE))/nrow(Q4test)
+cat("Confusion table of QDA:")
+result=table(qda_result,Q4test[,8]);result
+
+###Accuracy
+# Total percent correct from the testing set
+accuracy=sum(diag(result))/nrow(Q4test);accuracy
+```
+
+
+The accuracy for QDA is lower than that of LDA, at 88.3%. 
+
+# Multinomial Logistic Regression
+
+
+## Data preprocessing
+
+For this, I chose to predict with chosen variables: Area, Compactness, Kernel.Width and Kernel.Groove. The reason for removing some variables is because they are collinear to each other. For instance. if the area of the seed is larger, the perimeter will definitely be larger. Hence, perimeter variable is removed.
+
+```{r}
+Q4train[,c(1,3,5,7)] #Chosen Variables
+Q4train$Type= ifelse(Q4train$Type==1, "Type1", ifelse(Q4train$Type==2,"Type2","Type3"))
+Q4test$Type= ifelse(Q4test$Type==1, "Type1", ifelse(Q4test$Type==2,"Type2","Type3"))
+
+xtrain= as.matrix(Q4train[,c(1,3,5,7)])
+ytrain= as.matrix(Q4train$Type)
+xtest= as.matrix(Q4test[,c(1,3,5,7)])
+ytest= as.matrix(Q4test$Type)
+
+```
+
+
+
+
+
+```{r}
+#install.packages('glmnet')
+#package
+library(glmnet)
+#model
+mod1<-glmnet(xtrain,ytrain,family="multinomial", lambda=0)
+
+summary(mod1)
+```
+
+```{r}
+coef(mod1)
+#predicting the categoria
+prob=predict(mod1,xtest,type="response");prob[1:20,1:3,1]
+label=predict(mod1,xtest,type="class");label[1:20,]
+#Building classification table
+tab=table(predict=label,real=ytest);tab
+#Accuarcy of the test dataset
+sum(diag(tab))/sum(tab)
+```
+
+
+
+-Our model accuracy has turned out to be 90% in the test dataset.
+
+
+## Logistic Regression
+
+## Creating the binary dataset for traning
+```{r}
+unique(Q4train$Type)
+table(Q4train$Type)
+type1=which(Q4train$Type=='Type1')
+type2=which(Q4train$Type=='Type2')
+xytrain=data.frame(Q4train[c(type1,type2),c(1,3,5,7,8)])
+xytrain
+unique(xytrain$Type)
+xytrain$Type= as.factor(xytrain$Type)
+```
+
+## Creating the binary dataset for testing
+```{r}
+
+type1=which(Q4test$Type=='Type1')
+type2=which(Q4test$Type=='Type2')
+xytest=data.frame(Q4test[c(type1,type2),c(1,3,5,7,8)])
+xytest
+unique(xytest$Type)
+xytest$Type= as.factor(xytest$Type)
+
+```
+
+
+## Model
+
+```{r}
+#model
+mod2<-glm(formula=Type~.,data=xytrain,family=binomial(link="logit")) 
+summary(mod2)
+```
+
+## Prediction
+```{r}
+##predicting the model using test dataset
+prob=predict(mod2,xytest,type="response");prob
+
+label=rep('',length(prob))
+label[prob<0.5]= "Type1"
+label[prob>=0.5]="Type2"
+label
+xytest$Type=as.character(xytest$Type)
+##Confusion table
+tab=table(predict=label,real=xytest$Type);tab
+## Accuracy
+sum(diag(tab))/sum(tab)
+```
+
+
+Our model accuracy is 95.7%. However, the test data size is small, which may not be an accurate representation of the population.
+
+## Naive Bayes
+
+```{r}
+#install.packages('e1071')
+library(e1071)
+## model
+type=naiveBayes(Type~.,data=xytrain)
+#prediction
+label=predict(type,xytest)
+###Confusion table
+tab=table(predict=label,real=xytest$Type);tab
+##Accuracy
+sum(diag(tab))/sum(tab)
+```
+
+Our model accuracy turned out to be 87.2%.
+
+## ROC
+```{r}
+#install.packages('PRROC')
+library(PRROC)
+
+mod3<-glm(Type~.,data = xytrain,family=binomial(link="logit")) 
+prob=predict(mod3,xytrain,type="response");prob
+PRROC_obj=roc.curve(scores.class0=prob,weights.class0=as.numeric(as.factor(xytrain$Type))-1,curve=TRUE)
+plot(PRROC_obj)
+```
+
+The ROC hugs very closely to the top left hand corner and AUC=1, indicating that the model performs extremely well on the training set. However, there may be an issue of overfitting which is a cause of concern if performed on other test sets.
+
+
+## LDA Visualisation with wheat seeds data
+```{r}
+xy=rbind(Q4train,Q4test)
+xy=xy[,c(1,3,5,7,8)]
+LDA=lda(Type~.,data=xy)
+pre=data.frame(predict(LDA)$x)
+pre$class=predict(LDA)$class
+table(xy$Type)
+setc=c(mean(pre$LD1[pre$class=='Type1']),mean(pre$LD2[pre$class=='Type1']))
+verc=c(mean(pre$LD1[pre$class=='Type2']),mean(pre$LD2[pre$class=='Type2']))
+virc=c(mean(pre$LD1[pre$class=='Type3']),mean(pre$LD2[pre$class=='Type3']))
+mu=data.frame(LD1=c(setc[1],verc[1],virc[1]),LD2=c(setc[2],verc[2],virc[2]))
+mu$class=c("Type1","Type2","Type3")
+```
+
+```{r}
+library(ggplot2)
+LDA2 <- lda(class ~ LD1 + LD2, data=pre)
+
+ld1lim <- range(c(min(pre$LD1),max(pre$LD1)),mul=0.05)
+ld2lim <- range(c(min(pre$LD2),max(pre$LD2)),mul=0.05)
+ld1 <- seq(ld1lim[[1]], ld1lim[[2]], length.out=300)
+ld2 <- seq(ld2lim[[1]], ld1lim[[2]], length.out=300)
+newdat <- expand.grid(list(LD1=ld1,LD2=ld2))
+preds <-predict(LDA2,newdata=newdat)
+
+predclass <- preds$class
+postprob <- preds$posterior
+df <- data.frame(x=newdat$LD1, y=newdat$LD2, class=predclass)
+df$classnum <- as.numeric(df$class)
+df <- cbind(df,postprob)
+df=df[-which(df$y>max(pre$LD2)),]
+pre$class=xy$Type
+ggplot(pre, aes(x=LD1, y=LD2, colour=class) ) +
+geom_point() +
+geom_raster(data=df, aes(x=x, y=y, fill = factor(class)),alpha=0.4,show_guide=FALSE) +
+geom_contour(data=df, aes(x=x, y=y, z=classnum), colour="black", alpha=0.5, breaks=c(1.5,2.5)) +
+geom_point(data=mu, aes(x=LD1, y=LD2, colour=class,cex=0.1))
+```
+
+```{r}
+#install.packages('ellipse')
+library(ellipse)
+dat_ell=pre
+for(g in unique(pre$class))
+{
+exy=pre[pre$class==g,]
+ex=exy$LD1
+ey=exy$LD2
+ell=ellipse(cor(ex,ey),scale=c(sd(ex),sd(ey)),centre=c(mean(ex),mean(ey)))
+ell=cbind(ell,rep(g,dim(exy)[1]))
+ell=data.frame(ell)
+colnames(ell)=colnames(pre)
+dat_ell=rbind(dat_ell,ell)
+}
+dat_ell=dat_ell[-(1:dim(pre)[1]),]
+dat_ell$LD1=as.numeric(dat_ell$LD1)
+dat_ell$LD2=as.numeric(dat_ell$LD2)
+
+ggplot(pre, aes(x=LD1, y=LD2, colour=class) ) +
+geom_raster(data=df, aes(x=x, y=y, fill = factor(class)),alpha=0.4,show_guide=FALSE) +
+geom_contour(data=df, aes(x=x, y=y, z=classnum), colour="black", alpha=0.5, breaks=c(1.5,2.5)) +
+geom_point(data=mu, aes(x=LD1, y=LD2, colour=class,cex=0.1)) +
+geom_path(data=dat_ell,aes(x=LD1,y=LD2,colour=class),size=1,linetype=2)
+```
+
+
+
+
+## Simulated Datasets
+
+## Logistic Regression for 1)
+```{r}
+#generate data
+set.seed(125) #for reproducibility
+n=1000 #number of observations
+q=5 #number of predictors
+ui=0 #mean values for predictors
+si=1 #std dev values for predictors
+z<- matrix(rnorm(n*q,ui,si),nrow=n)
+#generate outcome variables
+log_odds= rowSums(z) #generate outcome variable y using the logodds of predictors plus some random noise, and then converting those logodds to probabilities using the logistic function
+y= rbinom(n,1,plogis(log_odds))
+#y
+z=data.frame(z)
+#fit logistic regression model
+model<- glm(y~z[,1] + z[,2] + z[,3] + z[,4] +z[,5], family=binomial)
+
+
+#summarise model results
+summary(model)
+
+
+#Predicting the results
+prob=predict(model,z,type="response")
+label=rep('',length(prob))
+label[prob<0.5]=0
+label[prob>=0.5]=1
+tab=table(predict=label,real=y)
+#calculates the classification accuracy for the test data 
+logreg=sum(diag(tab))/sum(tab)
+tab
+logreg
+```
+
+Accuracy is 79.8%
+
+# ROC curve
+```{r}
+library(PRROC)
+PRROC_obj=roc.curve(scores.class0=prob,weights.class0=as.numeric(as.factor(y))-1,curve=TRUE)
+plot(PRROC_obj)
+```
+
+The AUC for logistic regression is 0.88.
+
+## Naive Bayes for 1)
+```{r}
+
+combined<- data.frame(y,b1=z[,1],b2=z[,2],b3=z[,3],b4=z[,4],b5=z[,5])
+#fit naive bayes model
+model2=naiveBayes(y~b1+b2+b3+b4+b5, data=combined)
+# naive bayes model results
+model2
+#prediction
+label=predict(model2,combined)
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+sum(diag(tab))/sum(tab)
+naivebayes=sum(diag(tab))/sum(tab)
+```
+
+The accuracy is 80.4%.
+
+# ROC curve
+```{r}
+library(PRROC)
+
+PRROC_obj=roc.curve(scores.class0=label,weights.class0=as.numeric(as.factor(y))-1,curve=TRUE)
+plot(PRROC_obj)
+```
+ROC AUC is 0.80404. This implies that Naive Bayes performs worse than Logistic Regression.
+
+
+## LDA For 1)
+
+```{r}
+model3 <- lda(y~b1+b2+b3+b4+b5, data=combined)
+model3$coefficients
+#Prediction
+label=predict(model3)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+sum(diag(tab))/sum(tab)
+lda=sum(diag(tab))/sum(tab)
+```
+The accuracy is 80.1%
+
+# ROC curve
+```{r}
+library(PRROC)
+
+PRROC_obj=roc.curve(scores.class0=label,weights.class0=as.numeric(as.factor(y))-1,curve=TRUE)
+plot(PRROC_obj)
+```
+
+The AUC is 0.801.
+
+
+## QDA For 1)
+
+```{r}
+model4 <- qda(y~b1+b2+b3+b4+b5, data=combined)
+model4
+#Prediction
+label=predict(model4)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+sum(diag(tab))/sum(tab)
+qda=sum(diag(tab))/sum(tab)
+qda
+```
+The accuracy is 80.3%
+
+# ROC curve
+```{r}
+library(PRROC)
+
+PRROC_obj=roc.curve(scores.class0=label,weights.class0=as.numeric(as.factor(y))-1,curve=TRUE)
+plot(PRROC_obj)
+```
+
+The AUC is 0.803.
+
+## Comparing accuracy of all models
+```{r}
+data.frame(logreg,naivebayes,lda,qda)
+
+
+```
+The accuracy of the logistic regression model performs the worst, while the Naive Bayes performs the best. The accuracy of all models only differ by at most 0.6%, which means they produce similar results for case 1.
+
+
+## Logistic Regression for 2)
+```{r}
+#generate data
+set.seed(125) #for reproducibility
+n=1000 #number of observations
+q=5 #number of predictors
+ui=0 #mean values for predictors
+si=1 #std dev values for predictors
+z<- matrix(rnorm(n*q,ui,si),nrow=n)
+#generate outcome variables
+#let b1=1, b2=2, b3=3, b4=4, b5=4
+xb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- 1/(1 + exp(-xb))
+y= rbinom(n,1,prob=p)
+#y
+
+#fit logistic regression model
+model<- glm(y~z[,1] + z[,2] + z[,3] + z[,4] +z[,5], family=binomial)
+
+
+
+#summarise model results
+summary(model)
+
+#Predicting the results
+z=data.frame(z)
+prob=predict(model,z,type="response")
+label=rep('',length(prob))
+label[prob<0.5]=0
+label[prob>=0.5]=1
+tab=table(predict=label,real=y)
+#calculates the classification accuracy for the test data 
+logreg=sum(diag(tab))/sum(tab)
+tab
+logreg
+```
+
+## Naive Bayes for 2)
+```{r}
+
+combined<- data.frame(y,b1=z[,1],b2=z[,2],b3=z[,3],b4=z[,4],b5=z[,5])
+#fit naive bayes model
+model2=naiveBayes(y~b1+b2+b3+b4+b5, data=combined)
+# naive bayes model results
+model2
+
+#prediction
+label=predict(model2,combined)
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+naivebayes=sum(diag(tab))/sum(tab)
+naivebayes
+```
+
+## LDA For 2)
+
+```{r}
+model3 <- lda(y~b1+b2+b3+b4+b5, data=combined)
+model3$coefficients
+
+
+#Prediction
+label=predict(model3)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+lda=sum(diag(tab))/sum(tab)
+lda
+```
+
+## QDA For 2)
+
+```{r}
+model4 <- qda(y~b1+b2+b3+b4+b5, data=combined)
+model4
+#Prediction
+label=predict(model4)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+sum(diag(tab))/sum(tab)
+qda=sum(diag(tab))/sum(tab)
+qda
+```
+## Comparing accuracy of all models
+```{r}
+data.frame(logreg,naivebayes,lda,qda)
+
+```
+
+LDA performs the best, while Naive Bayes performs the worst.
+
+
+## Logistic Regression for 3)
+```{r}
+#generate data
+set.seed(125) #for reproducibility
+n=1000 #number of observations
+q=5 #number of predictors
+ui=0 #mean values for predictors
+si=1 #std dev values for predictors
+z<- matrix(rnorm(n*q,ui,si),nrow=n)
+#generate outcome variables
+#let b1=1, b2=2, b3=3, b4=4, b5=4
+xb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- (tanh(xb)+1)/2
+y= rbinom(n,1,prob=p)
+#y
+
+#fit logistic regression model
+model<- glm(y~z[,1] + z[,2] + z[,3] + z[,4] +z[,5], family=binomial)
+
+
+
+#summarise model results
+summary(model)
+
+#Predicting the results
+z=data.frame(z)
+prob=predict(model,z,type="response")
+label=rep('',length(prob))
+label[prob<0.5]=0
+label[prob>=0.5]=1
+tab=table(predict=label,real=y)
+#calculates the classification accuracy for the test data 
+logreg=sum(diag(tab))/sum(tab)
+tab
+logreg
+```
+
+
+## Naive Bayes for 3)
+```{r}
+
+combined<- data.frame(y,b1=z[,1],b2=z[,2],b3=z[,3],b4=z[,4],b5=z[,5])
+#fit naive bayes model
+model2=naiveBayes(y~b1+b2+b3+b4+b5, data=combined)
+# naive bayes model results
+model2
+
+#prediction
+label=predict(model2,combined)
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+naivebayes=sum(diag(tab))/sum(tab)
+naivebayes
+```
+
+
+## LDA For 3)
+
+```{r}
+model3 <- lda(y~b1+b2+b3+b4+b5, data=combined)
+model3$coefficients
+
+
+#Prediction
+label=predict(model3)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+lda=sum(diag(tab))/sum(tab)
+lda
+```
+
+
+
+## QDA For 3)
+
+```{r}
+model4 <- qda(y~b1+b2+b3+b4+b5, data=combined)
+model4
+#Prediction
+label=predict(model4)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+sum(diag(tab))/sum(tab)
+qda=sum(diag(tab))/sum(tab)
+qda
+```
+
+
+## Comparing accuracy of all models
+```{r}
+data.frame(logreg,naivebayes,lda,qda)
+```
+Logistic regression performs the best, while LDA performs the worst.
+
+
+
+
+
+
+## Logistic Regression for 4)
+```{r}
+#generate data
+set.seed(125) #for reproducibility
+n=1000 #number of observations
+q=5 #number of predictors
+ui=0 #mean values for predictors
+si=1 #std dev values for predictors
+z<- matrix(rnorm(n*q,ui,si),nrow=n)
+#generate outcome variables
+#let b1=1, b2=2, b3=3, b4=4, b5=4
+xb<- z[,1] + 2*z[,2] + 3*z[,3] + 4*z[,4] + 5*z[,5]
+p <- (atan(xb)+ (pi/2))/pi
+y= rbinom(n,1,prob=p)
+#y
+
+#fit logistic regression model
+model<- glm(y~z[,1] + z[,2] + z[,3] + z[,4] +z[,5], family=binomial)
+
+
+
+#summarise model results
+summary(model)
+
+#Predicting the results
+z=data.frame(z)
+prob=predict(model,z,type="response")
+label=rep('',length(prob))
+label[prob<0.5]=0
+label[prob>=0.5]=1
+tab=table(predict=label,real=y)
+#calculates the classification accuracy for the test data 
+logreg=sum(diag(tab))/sum(tab)
+logreg
+```
+
+
+## Naive Bayes for 4)
+```{r}
+
+combined<- data.frame(y,b1=z[,1],b2=z[,2],b3=z[,3],b4=z[,4],b5=z[,5])
+#fit naive bayes model
+model2=naiveBayes(y~b1+b2+b3+b4+b5, data=combined)
+# naive bayes model results
+model2
+
+#prediction
+label=predict(model2,combined)
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+naivebayes=sum(diag(tab))/sum(tab)
+naivebayes
+```
+
+
+## LDA For 4)
+
+```{r}
+model3 <- lda(y~b1+b2+b3+b4+b5, data=combined)
+model3$coefficients
+#Prediction
+label=predict(model3)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+lda=sum(diag(tab))/sum(tab)
+lda
+```
+
+## QDA For 4)
+
+```{r}
+model4 <- qda(y~b1+b2+b3+b4+b5, data=combined)
+model4
+
+#Prediction
+label=predict(model4)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+sum(diag(tab))/sum(tab)
+qda=sum(diag(tab))/sum(tab)
+qda
+```
+
+## Comparing accuracy of all models
+```{r}
+data.frame(logreg,naivebayes,lda,qda)
+```
+
+LDA perfoms the best, while naive bayes performs the worst.
+
+
+## Logistic Regression for 5)
+```{r}
+#generate data
+set.seed(125) #for reproducibility
+n=1000 #number of observations
+q=2 #number of predictors
+p=0.86 #probability 
+z<- matrix(rbinom(n*q,1,p),nrow=n)
+#generate outcome variables
+#let b1=1, b2=1
+y <- (z[,1] + z[,2] )%%2
+
+
+#fit logistic regression model
+model<- glm(y~z[,1] + z[,2] , family=binomial)
+
+
+#summarise model results
+summary(model)
+
+
+#Predicting the results
+z=data.frame(z)
+prob=predict(model,z,type="response")
+label=rep('',length(prob))
+label[prob<0.5]=0
+label[prob>=0.5]=1
+tab=table(predict=label,real=y)
+#calculates the classification accuracy for the test data 
+logreg=sum(diag(tab))/sum(tab)
+tab
+logreg
+```
+
+
+## Naive Bayes for 5)
+```{r}
+
+combined<- data.frame(y,b1=z[,1],b2=z[,2])
+#fit naive bayes model
+model2=naiveBayes(y~b1+b2, data=combined)
+# naive bayes model results
+model2
+
+#prediction
+label=predict(model2,combined)
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+naivebayes=sum(diag(tab))/sum(tab)
+naivebayes
+```
+
+
+## LDA For 5)
+
+```{r}
+model3 <- lda(y~b1+b2, data=combined)
+model3$coefficients
+
+#Prediction
+label=predict(model3)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+lda=sum(diag(tab))/sum(tab)
+lda
+```
+
+## QDA For 5)
+QDA cannot be performed as the zis are values of 0 and It  assumes real values (and not factors) in the explanatory variables. Thus, there would be an error "Error in qda.default(x, grouping, ...) : rank deficiency in group 0 " if QDA is performed in R.
+
+## Comparing accuracy of all models
+```{r}
+data.frame(logreg,naivebayes,lda)
+```
+All models have the same accuracy, performing equally.
+
+## Logistic Regression for 6) Gudermannian function
+
+Relationship: 
+f(Y) is a Gudermannian function, where P(Y=1)= 2*arctan(tanh(x/2))
+
+We shall let P(Y=1)= (pi/2 +2*arctan(tanh(2z1 + 3z2/2)))/pi where z1,z2 are i.i.d from N(ui,si)
+
+```{r}
+#generate data
+set.seed(125) #for reproducibility
+n=1000 #number of observations
+q=2 #number of predictors
+ui=0 #mean values for predictors
+si=1 #std dev values for predictors
+z<- matrix(rnorm(n*q,ui,si),nrow=n)
+#generate outcome variables
+#let b1=2, b2=3
+p <- (2*atan(tanh((2*z[,1]+3*z[,2])/2)) + pi/2)/pi
+
+y= rbinom(n,1,prob=p)
+#y
+
+#fit logistic regression model
+model<- glm(y~z[,1] + z[,2], family=binomial)
+
+
+
+#summarise model results
+summary(model)
+
+
+#Predicting the results
+z=data.frame(z)
+prob=predict(model,z,type="response")
+label=rep('',length(prob))
+label[prob<0.5]=0
+label[prob>=0.5]=1
+tab=table(predict=label,real=y)
+#calculates the classification accuracy for the test data 
+logreg=sum(diag(tab))/sum(tab)
+tab
+logreg
+```
+
+
+## Naive Bayes for 6)
+```{r}
+
+combined<- data.frame(y,b1=z[,1],b2=z[,2])
+#fit naive bayes model
+model2=naiveBayes(y~b1+b2, data=combined)
+# naive bayes model results
+model2
+
+#prediction
+label=predict(model2,combined)
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+naivebayes=sum(diag(tab))/sum(tab)
+naivebayes
+```
+
+
+## LDA For 6)
+
+```{r}
+model3 <- lda(y~b1+b2, data=combined)
+model3$coefficients
+
+
+#Prediction
+label=predict(model3)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+lda=sum(diag(tab))/sum(tab)
+lda
+```
+
+## QDA For 6)
+
+```{r}
+model4 <- qda(y~b1+b2, data=combined)
+model4
+#Prediction
+label=predict(model4)$class
+###Confusion table
+tab=table(predict=label,real=y);tab
+##Accuracy
+sum(diag(tab))/sum(tab)
+qda=sum(diag(tab))/sum(tab)
+qda
+```
+
+## Comparing accuracy of all models
+```{r}
+data.frame(logreg,naivebayes,lda,qda)
+
+```
+LDA performs the best, while Naive Bayes performs the worst.
+
+
+
+
+
+
+
+
