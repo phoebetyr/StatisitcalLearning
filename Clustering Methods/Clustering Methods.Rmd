@@ -1,0 +1,246 @@
+---
+title: "Hierarchical clustering methods"
+author: "Phoebe Tan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Clustering Methods
+
+## 1. Hierarchical clustering methods
+
+**A. Agglomerative hierarchical clustering:**
+
+Begin by considering individual objects, such as items or variables. Initially, group together the most similar objects, and subsequently combine these initial groups based on their similarities. Ultimately, all the subgroups are consolidated into a single cluster.
+
+**B. Divisive hierarchical methods:**
+
+Divisive hierarchical methods involve an initial grouping of objects into a single cluster. This primary cluster is then successively divided into two subgroups. These subgroups are subsequently partitioned into even more dissimilar subgroups. Eventually, this process continues until a total of as many subgroups as there are original objects are formed.
+
+
+## 2. Hierarchical clustering methods: Linkage Methods
+
+Linkage methods are used as a similarity or dissimilarity measure between 2 clusters when merging them into a cluster.
+
+Some linkage methods include:
+
+*1. Single Linkage*
+
+Distance between 2 closest points between 2 groups.
+
+*2. Complete Linkage*
+
+Maximum distance between 2 points (of 2 groups).
+
+
+*3. Average Linkage* 
+
+Average distance between all pairs of points (of 2 groups).
+
+
+# 1. Conduct the Hierarchical clustering and discuss results. 
+
+## Preprocessing Data
+
+
+```{r}
+#Data from https://www.kaggle.com/datasets/harrywang/wine-dataset-for-clustering
+
+data= read.csv("wine-clustering.csv")
+
+data=scale(data)
+str(data)
+head(data)
+sum(is.na(data))
+
+#There are no NA values
+```
+
+```{r}
+dis = dist(data, method = 'euclidean',diag = T); #dis
+```
+
+```{r}
+# single linkage
+single_linkage_track = hclust(dis, method = "single")
+plot(single_linkage_track,  sub="",xlab="Wine", main="Cluster Dendrogram using Single Linkage", cex=0.5, ylab="Distance")
+
+
+```
+
+Using Single linkage, there is no clear cluster profile to group similar kinds of wine together. 
+
+**2. Complete linkage**
+
+```{r}
+# complete linkage 
+complete_linkage_track = hclust(dis,  method = "complete")
+plot(complete_linkage_track,  sub="",xlab="Wine", main="Cluster Dendrogram using Complete Linkage", cex=0.5, ylab="Distance")
+abline(h=9, col="red")
+```
+
+From the diagram above, the cutoff line at h=9 shows that there are 3 different clusters. Within each cluster, each wine have similar characteristics like Alcohol, Malic Acid, Magnesium levels etc. Perhaps, each cluster represents one type of wine.   
+
+**3. Ward's method**
+
+
+
+```{r}
+# ward's hierarchical clustering method
+ward_linkage = hclust(dis, method = "ward.D")
+plot(ward_linkage,  sub="",xlab="Wine", main="Cluster Dendrogram using Ward's method", cex=0.5, ylab="Distance")
+abline(h=60, col="red")
+```
+
+Using Ward's method, the clustering is much obvious as the distance between each cluster is further as compared to the other methods. This can be shown by the longer distance measure (vertical lines and large scale) in the Dendrogram diagram.
+
+
+
+**4.Average linkage** 
+```{r}
+# avg linkage hierarchical procedure
+avg_linkage = hclust(dis, method = "average")
+plot(avg_linkage,  sub="",xlab="Wine", main="Cluster Dendrogram using Average Linkage", cex=0.5, ylab="Distance")
+segments(1,18,25,18, col="red")
+segments(50,35,55,35, col="red")
+
+```
+
+Using Average Linkage Method, clusters are not well defined. The scale of the y axis, the distance measure between each cluster is relatively small as compared to that of Ward's method.
+
+
+In summary, the best linkage method to be used for this dataset is Ward's method. Clusters are more well defined, and the distance between each cluster is larger than the rest of the linkage methods. It is also much easier to find the 3 different clusters visually on the Dendrogram. Each cluster could represent one type of wine, with similar characteristics like alcohol level.
+
+
+# 2 Conduct the K means and discuss results. 
+**Bivariate cluster plots for K=3 and K=4**
+
+```{r}
+library(cluster)
+# K-means clustering results for k=3 and k=4
+
+# 3 cluster solution
+km3 <- kmeans(data, 3)
+# Clustering results
+km3$cluster
+
+# 4 cluster solution
+km4 = kmeans(data, 4)
+# Clustering results
+km4$cluster
+# bivariate cluster plots for K=3 nad K=4
+clusplot(data[,-1], km3$cluster, color = T, shade = T, labels = 2, main = "K-means Clustering for K=3")
+clusplot(data[,-1], km4$cluster, color = T, shade = T, labels = 2, main = "K-means Clustering for K=4")
+```
+
+
+Using K=3, the 3 clusters seem to be more well separated than using K=4 where there are 4 clusters. This is because there are less "overlaps" in the cluster diagram for K=3 than K=4. 
+
+
+```{r}
+# silhouette plots construction
+# k=3
+sil_3 = silhouette(km3$cluster, dis)
+plot(sil_3, main = "Silhouette plot for 3-means",  col = c("red", "green", "blue"))
+
+# k=4
+sil_4 = silhouette(km4$cluster, dis)
+plot(sil_4, main = "Silhouette plot for 4-means",  col = c("red", "green", "blue", "purple"))
+```
+
+
+The average silhouette width of K=3 is larger than that of K=4.If the silhouette width value for k=3 is larger than the value for k=4, it means that the clustering quality is better for k=3. This suggests that the data points in the dataset are better separated into three clusters than into four clusters. It is possible that the clustering for k=4 is creating smaller, less distinct clusters, or it is overfitting the data by creating too many clusters.
+
+# 3 Conduct the Silhouette plot and choose K in K means. 
+
+
+```{r}
+####   silhouette value for Kmeans cluster =2
+km2=kmeans(data,centers = 2)
+Silkm2=silhouette(km2$cluster,dist(data))
+plot(Silkm2,main = "silhouette of kmean with k=2",col = c("red", "green"))
+
+####   silhouette value for Single linkage for k=2
+Silhclsinglek2 <- silhouette(cutree(single_linkage_track,k=2),dist(data))
+plot(Silhclsinglek2,main = "silhouette of hierarchical single linkage with k=2",col = c("red", "green"))
+
+####   silhouette value for complete linkage for k=2
+Silhclcompletek2 <- silhouette(cutree(complete_linkage_track,k=2),dist(data))
+plot(Silhclcompletek2,main = "Silhouette of hierarchical complete linkage with k=2",col = c("red", "green"))
+
+####   silhouette value for ward linkage for k=2
+SilhclwardDk2 <- silhouette(cutree(ward_linkage,k=2),dist(data))
+plot(SilhclwardDk2,main = "Silhouette of hierarchical ward.D linkage with k=2",col = c("red", "green"))
+
+####   silhouette value for Average linkage for k=2
+SilhclwardDk2 <- silhouette(cutree(avg_linkage,k=2),dist(data))
+plot(SilhclwardDk2,main = "Silhouette of hierarchical average linkage with k=2",col = c("red", "green"))
+```
+
+For K=2 (2 clusters):
+Ward's linkage method has the highest average silhouette width of 0.27 compared to the other methods. K Means also seem to perform well, with the average silhouette width close to that of Ward's method.
+
+However, for the methods using Single linkage and average linkage, the cluster magnitude for both clusters are extremely unbalanced. Using hierarchical average linkage, there is only one data point in one cluster. Using hierarchical single linkage, there is 3 data points in one cluster. The unbalanced cluster magnitudes make it challenging to draw meaningful insights from the clustering results. For example, if the clusters with only a few data points are of interest, they may be overlooked due to their small size. On the other hand, if the larger clusters are of interest, the impact of the small clusters may be ignored, leading to an incomplete understanding of the data.
+
+
+
+**K=3**
+````{r}
+####   silhouette value for Kmeans cluster =3
+km3=kmeans(data,centers = 3)
+Silkm3=silhouette(km3$cluster,dist(data))
+plot(Silkm3,main = "silhouette of kmean with k=3",col = c("red", "green", "blue"))
+
+####   silhouette value for Single linkage for k=3
+Silhclsinglek3 <- silhouette(cutree(single_linkage_track,k=3),dist(data))
+plot(Silhclsinglek3,main = "silhouette of hierarchical single linkage with k=3",col = c("red", "green","blue"))
+
+####   silhouette value for complete linkage for k=3
+Silhclcompletek3 <- silhouette(cutree(complete_linkage_track,k=3),dist(data))
+plot(Silhclcompletek3,main = "Silhouette of hierarchical complete linkage with k=3",col = c("red", "green", "blue"))
+
+####   silhouette value for Average linkage for k=3
+SilhclwardDk3 <- silhouette(cutree(ward_linkage,k=3),dist(data))
+plot(SilhclwardDk3,main = "Silhouette of hierarchical ward.D linkage with k=3",col = c("red", "green", "blue"))
+````
+
+Just like the case for K=2, the clusters for hierarchical single linkage is extremely unbalanced, with 3 data points and 1 data point in 2 different clusters and 147 data points in one huge cluster.
+
+
+K means performs the best with the highest silhouette width of 0.28, along with Ward's method which comes close at 0.27. On the other hand, hierarchical complete linkage seem to have some overlap between differetn clusters and has a lower average silhouette width of 0.2, which implies that it doesnt perform as well as the other methods.
+
+**K=4**
+````{r}
+####   silhouette value for Kmeans cluster =4
+km4=kmeans(data,centers = 4)
+Silkm4=silhouette(km4$cluster,dist(data))
+plot(Silkm4,main = "silhouette of kmean with k=4",col = c("red", "green", "blue"))
+
+####   silhouette value for Single linkage for k=4
+Silhclsinglek4<- silhouette(cutree(single_linkage_track,k=4),dist(data))
+plot(Silhclsinglek4,main = "silhouette of hierarchical single linkage with k=4",col = c("red", "green","blue"))
+
+####   silhouette value for complete linkage for k=4
+Silhclcompletek4 <- silhouette(cutree(complete_linkage_track,k=4),dist(data))
+plot(Silhclcompletek4,main = "Silhouette of hierarchical complete linkage with k=4",col = c("red", "green", "blue"))
+
+####   silhouette value for Average linkage for k=4
+SilhclwardDk4 <- silhouette(cutree(ward_linkage,k=4),dist(data))
+plot(SilhclwardDk4,main = "Silhouette of hierarchical ward.D linkage with k=4",col = c("red", "green", "blue"))
+````
+
+
+Just like the case for K=2 and K=3, the clusters for hierarchical single linkage is extremely unbalanced. This proves consistently that single linkage is not a suitable metric for clustering.
+
+K means performs the best with the highest average silhouette width of 0.25, followed by Ward's method of 0.22 then complete linkage of 0.19 and lastly, single linkage at 0.18. 
+
+Across all values of K=2,3,4, K means and Ward's method seem to perform the best.
+Comparing the average silhouette width values of different Ks, the optimal number of clusters is K=3. This result agrees with the diagram obtained in Part 2, where the data points are well separated into 3 clusters.
+
+
+
+
