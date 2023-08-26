@@ -1,0 +1,297 @@
+---
+title: "Tree Based Methods and Ensemble Learning"
+author: "Phoebe Tan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+**1. Tree based methods**
+
+Partitions the feature space into a set of rectangles, followed by fitting a simple model in each of them
+
+
+-Regression tree
+
+-Classification tree
+
+**2. Ensemble learning**
+
+Ensemble learning is a technique where multiple models are combined to solve a problem, typically with the goal of improving the predictive performance compared to using individual models alone.
+
+-Bagging (random forest): Reduces variance of an estimated prediction function by fitting the same prediction function many times to bootstrapped sampled versions of the training data and averages the result. Helpful when model is complex and easy to overfit.
+
+-Boosting (ada boosting): Iiteratively improves the performance of a model by giving more weight to misclassified instances in each iteration. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preprocessing Data
+
+```{r}
+#Data Link: https://www.kaggle.com/datasets/rajyellow46/wine-quality
+data= read.csv("winequalityN.csv")
+str(data)
+head(data)
+sum(is.na(data))
+
+
+#There are NA values
+data= na.omit(data)
+#Remove leverage values
+# Calculate the leverage values for each observation
+leverage <- hatvalues(lm(alcohol ~ density, data = data))
+# Identify the observations with high leverage values
+high_leverage <- which(leverage > (2 * mean(leverage)))
+
+# Exclude the high leverage observations from your analysis
+data <- data[-high_leverage, ]
+str(data)
+head(data)
+
+```
+
+```{r}
+data$quality=as.factor(data$quality)
+str(data)
+```
+
+# 1) Conduct the regression tree and discuss the results +  Random Forest 
+
+## Regression Tree
+
+#Step 1: splitting data into a training set and a testing set.
+```{r}
+set.seed(1)
+selected <- sample(1:dim(data)[1], size=round(dim(data)[1]*0.7))  #splitting the data into Train and test dataset
+round(dim(data)[1]*0.7)
+train <- data[selected,]   # 70% t which means Randomly select 280 observations for Traning set 
+test <- data[-selected,]   # 30% which means Randomly select 120 observations for Traning set
+train<- train[,9:12]
+test<-test[,9:12]
+```
+
+#Step 2: Load the necessary packages.
+```{r}
+# Install packages "rpart", "rpart.plot" first, then load them into R
+#install.packages('rpart')
+library(rpart)
+#install.packages('rpart.plot')
+library(rpart.plot)
+```
+
+
+#Step 3: Build the initial regression tree.
+-First, we’ll build a large initial regression tree. We can ensure that the tree is large by using a small value for cp,
+```{r}
+set.seed(10)
+#Fitting the model
+fittree <- rpart(pH~., data=train, method="anova", cp=10^(-5)) 
+# Display the CP table
+printcp(fittree)
+# Visualize cross-validation results((xerror))
+plotcp(fittree)
+```
+
+```{r}
+bestcp <- fittree$cptable[which.min(fittree$cptable[,"xerror"]),"CP"]
+bestcp
+```
+
+In the plot above, we see that the CV error decreases sharply as cp value increases. This means that the size of the tree has been penalised more. After reaching a minimum point, CV error increases as cp value increases further. This means that penalizaing the size of the tree after the minimum cp value does not further reduce the CV error. Thus, based on the results above, the best cp value chosen in reference to the lowest Relative Error (at the minimum point) produced was = 0.002369457 
+
+
+
+```{r}
+#identify best cp value to use
+bestcp <- fittree$cptable[which.min(fittree$cptable[,"xerror"]),"CP"]
+fittreebest <- prune(fittree, cp=bestcp)
+# Plot tree using package rpart.plot
+prp(fittreebest, faclen=-3, extra=1, main="CART- best cp")
+
+```
+
+The regression tree is used to predict the pH value of each wine sample based on the variables density, sulphate and alcohol level.
+
+
+Visualising the tree, the first split occurs where sulphate < 0.54. If Yes, we traverse down the left edge of and arrive at the second decision split where alcohol <9.3. If no, the decision split is at sulphate>=0.98.
+We do this repeatedly as we traverse down the tree.
+
+
+```{r}
+
+fittreebest$frame
+
+```
+
+#Step 5: Use the tree to make predictions.
+```{r}
+predtreebest <- predict(fittreebest, test)
+
+sqrt(sum((test$pH-predtreebest)^2))
+```
+
+The RMSE is 6.24651.
+
+
+
+## Random Forest For regression trees
+
+ 
+
+```{r}
+
+library(randomForest)
+
+fittreer <- randomForest(pH~., data=train, importance=T, ntree=2000, mtry=4)
+print(fittreer)
+```
+
+```{r}
+# Look at what variables were important
+varImpPlot(fittreer) #Variables with higher importance values are considered more important in predicting the response variable.
+importance(fittreer,scale=TRUE)
+```
+
+%IncMSE is simply the average increase in squared residuals of the test set when variables are randomly permuted (little importance = little change in model when variable is removed or added) and IncNodePurity is the increase in homogeneity in the data partitions.
+Based on the values of %IncMSE, sulphates is the most important variable, followed by alcohol then lastly, density Based on IncNodePurity, the most important variable is density, sulphates then alcohol.
+
+```{r}
+#Predicting the variable using the test dataset
+predtreer <- predict(fittreer, test)
+# root mean square error (RMSE) of the prediction
+sqrt(sum((test$pH-predtreer)^2))
+
+```
+
+Indeed, the random forest model's RMSE(5.663358) is lower than that of a single regression tree (RMSE=  6.25641). This implies that Random forest produces a more accurate prediction than a single regression tree.
+
+# 2. Conduct the classification tree and discuss the results + Random FOrest
+
+#Step 1: splitting data into a training set and a testing set.
+```{r}
+set.seed(2)
+selected <- sample(1:dim(data)[1], size=round(dim(data)[1]*0.7))  #splitting the data into Train and test dataset
+round(dim(data)[1]*0.7)
+train <- data[selected,]   # 70% t which means Randomly select 280 observations for Traning set 
+test <- data[-selected,]   # 30% which means Randomly select 120 observations for Traning set
+train<- train[,c(3,11,12,13)]
+test<-test[,c(3,11,12,13)]
+```
+
+#Step 2: Build the initial classification tree.
+```{r}
+set.seed(1)
+fittreec <- rpart(quality~., data=train, method="class", cp=10^(-5))
+# Display the CP table
+printcp(fittreec)
+# Visualize cross-validation results
+plotcp(fittreec, cex=.8)
+```
+
+```{r}
+cbestcp <- fittreec$cptable[which.min(fittreec$cptable[,"xerror"]),"CP"]
+cbestcp
+```
+In the plot above, we see that the CV error decreases sharply as cp value increases. This means that the size of the tree has been penalised more. After reaching a minimum point, CV error increases gradually as cp value increases further. This means that penalizaing the size of the tree after the minimum cp value does not further reduce the CV error. Thus, based on the results above, the best cp value chosen in reference to the lowest Relative Error (at the minimum point) produced was = 0.002098196 
+
+
+#Step 3: Prune the tree.
+
+```{r}
+# Prune the tree using the best cp (i.e., the cp with the smallest cross-validation error (xerror))
+cbestcp <- fittreec$cptable[which.min(fittreec$cptable[,"xerror"]),"CP"]
+fittreecbest <- prune(fittreec, cp=cbestcp)
+# Plot tree using package rpart.plot
+prp(fittreecbest, faclen=-3, extra=1, main="CART- best cp")
+```
+
+The classification tree is used to predict the quality (factor value: 0-7) of each wine sample based on the variables volatile acidity, sulphate and alcohol level.
+
+
+Visualizing the tree, the first split occurs where alcohol < 10 If Yes, we traverse down the left edge of and arrive at the second decision split where volatile>=0.25. If no, the decision split is at alcohol<12.
+We do this repeatedly as we traverse down the tree. With a new sample, we can predict its outcome by traversing down the tree with the input values. The predicted quality level of the wine sample is reflected as the top number of the leaf node. For eg, at the leftmost leaf node, the predicted quality level is 5.
+
+
+#Step 4: Use the tree to make predictions.
+```{r}
+predtreec <- predict(fittreecbest, test)
+predtreec_Class <- apply(predtreec, 1, function(one_row) return(colnames(predtreec)[which(one_row == max(one_row))]))
+#Confusion table
+table(test$quality)
+confusion=table(test$quality, predtreec_Class);confusion
+# root mean square error (RMSE) of the prediction
+sum(diag(confusion))/sum(confusion)
+```
+
+The accuracy even after pruning is extremely low, at 2.3%. The classification tree only predicts class labels 5,6,7. However, the true test labels values are from 3 to 9.
+
+
+## Random Forest For Classification trees
+```{r}
+
+fittreer <- randomForest(quality~., data=train, importance=T, ntree=2000, mtry=3)
+print(fittreer)
+```   
+
+
+```{r}
+# Look at what variables were important
+varImpPlot(fittreer, cex=.8) #Variables with higher importance values are considered more important in predicting the response variable.
+importance(fittreer,scale=TRUE)
+```
+
+The Mean Decrease Accuracy plot expresses how much accuracy the model losses by excluding each variable. The more the accuracy suffers, the more important the variable is for the successful classification.
+The mean decrease in Gini coefficient is a measure of how each variable contributes to the homogeneity of the nodes and leaves in the resulting random forest. The higher the value of mean decrease accuracy or mean decrease Gini score, the higher the importance of the variable in the model.
+
+Thus, from the Mean Decrease Accuracy plot, the most important variable is alcohol, followed by volatile.acidity then sulphates. On the other hand for the Mean Decrease Gini plot, the most important variable is  volatile.acidity, followed by sulphates then alcohol.
+
+```{r}
+#Predicting the variable using the test dataset
+predtreer <- predict(fittreer, test)
+#Confusion matrix
+confusion=table(test$quality, predtreer);confusion
+# root mean square error (RMSE) of the prediction
+sum(diag(confusion))/sum(confusion)
+```
+The accuracy with random forest is 59.4%, which is a huge improvement from 2.3% without random forest.
+
+
+
+
+# Ensemble learning: Ada-boosting
+
+
+
+```{r}
+#install.packages('xgboost')
+library(xgboost)
+
+xgb <- xgboost(data = data.matrix(train), 
+              label = train$quality,
+              eta = 0.1,
+              max_depth = 15, 
+              nround=25, 
+              subsample = 0.5,
+              colsample_bytree = 0.5,
+              eval_metric = "merror",
+              objective = "multi:softmax",
+              num_class = 8,
+              nthread=3)
+#Prediction of the Test Data
+y_pred=predict(xgb, data.matrix(test))
+#confusion table
+confusion=table(test$quality, y_pred);confusion
+#Accuracy
+sum(diag(confusion))/sum(confusion)
+```
+
+Based on the Adaboost results, the model shows an improvement in classification performance over time as indicated by the decreasing train-merror values. This suggests that the model's accuracy improved with each iteration, with the highest error rate of 0.148 at the first iteration and the lowest error rate of 0.000939 at the 25th iteration.
+
+The confusion matrix shows the number of predicted and actual class labels for the test data. Based on the matrix, it seems that the model made very few errors in predicting the classes, as the majority of the values lie on the diagonal, indicating correct predictions. The overall accuracy of the model, as indicated by the [1] value of 0.9994524, is also very high.
+
+However, it's worth noting that the results only provide information about the model's performance on the training and test data used. Further evaluation and validation on independent data sets may be necessary to confirm the model's performance and generalizability.
+
+
+
+
